@@ -9,9 +9,6 @@ on:
 permissions:
   contents: write
 
-env:
-  TIZEN_STUDIO_VER: 4.5.1
-
 jobs:
   build-wgt:
     runs-on: ubuntu-24.04
@@ -22,21 +19,23 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y expect curl unzip
+          sudo apt-get install -y curl unzip
 
-      - name: Download + install Tizen Studio Web CLI
+      - name: Install Tizen Studio Web CLI
         run: |
           set -euo pipefail
-          curl --fail --location --retry 3 --retry-delay 5 -o tizen-installer \
-            "https://download.tizen.org/sdk/Installer/tizen-studio_${TIZEN_STUDIO_VER}/web-cli_Tizen_Studio_${TIZEN_STUDIO_VER}_ubuntu-64.bin"
+          curl --fail --location --retry 3 --retry-delay 5 \
+            -o tizen-installer \
+            "https://download.tizen.org/sdk/Installer/tizen-studio_4.5.1/web-cli_Tizen_Studio_4.5.1_ubuntu-64.bin"
           chmod +x tizen-installer
           ./tizen-installer --accept-license "$GITHUB_WORKSPACE/tizen-studio"
           echo "$GITHUB_WORKSPACE/tizen-studio/tools/ide/bin" >> "$GITHUB_PATH"
+          echo "$GITHUB_WORKSPACE/tizen-studio/tools" >> "$GITHUB_PATH"
 
-      - name: verify
+      - name: Verify repo
         run: node tools/verify-repo.mjs
 
-      - name: build-web
+      - name: Build web package
         run: |
           set -euo pipefail
           cd app
@@ -46,97 +45,27 @@ jobs:
             -e "package*.json"
           test -d .buildResult
 
-      - name: package-signed
-        id: package
-        env:
-          TIZEN_CERT_P12_BASE64: ${{ secrets.TIZEN_CERT_P12_BASE64 }}
-          TIZEN_CERT_PASSWORD: ${{ secrets.TIZEN_CERT_PASSWORD }}
-          TIZEN_PROFILE_NAME: ${{ secrets.TIZEN_PROFILE_NAME }}
+      - name: Package WGT
         run: |
           set -euo pipefail
-          TIZEN_BIN="$GITHUB_WORKSPACE/tizen-studio/tools/ide/bin/tizen"
-          PROFILE_NAME="${TIZEN_PROFILE_NAME:-Tidalizen}"
-          PROFILE_XML="$GITHUB_WORKSPACE/tizen-studio-data/profile/profiles.xml"
-          CERT_PASSWORD="${TIZEN_CERT_PASSWORD:-1234}"
-          mkdir -p app/release "$(dirname "$PROFILE_XML")"
-          chmod +x ./package.exp
+          mkdir -p app/release
           rm -f app/release/*.wgt app/release/*.json
+          node tools/package-manual-wgt.mjs app/.buildResult app/release/Tidalizen.wgt
+          ls -lah app/release
+          test -s app/release/Tidalizen.wgt
 
-          if [ -n "${TIZEN_CERT_P12_BASE64:-}" ] && [ -n "${TIZEN_CERT_PASSWORD:-}" ]; then
-            echo "$TIZEN_CERT_P12_BASE64" | base64 -d > "$GITHUB_WORKSPACE/tidalizen.p12"
-            "$TIZEN_BIN" security-profiles add -n "$PROFILE_NAME" -a "$GITHUB_WORKSPACE/tidalizen.p12" -p "$CERT_PASSWORD"
-            echo "release_mode=production" >> "$GITHUB_OUTPUT"
-          else
-            "$TIZEN_BIN" certificate -a Tidalizen -p "$CERT_PASSWORD" -c HU -s Gyor -ct Gyor -o HumanRebel -n Tidalizen -e tidalizen@example.local -f tidalizen
-            "$TIZEN_BIN" security-profiles add -n "$PROFILE_NAME" -a "$GITHUB_WORKSPACE/tizen-studio-data/keystore/author/tidalizen.p12" -p "$CERT_PASSWORD"
-            echo "release_mode=debug" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Verify WGT structure
+        run: node tools/verify-wgt.mjs app/release/Tidalizen.wgt debug | tee app/release/wgt-metadata.json
 
-          "$TIZEN_BIN" cli-config "profiles.path=$PROFILE_XML"
-          sed -Ei "s/password=\"[^\"]*\\.pwd\"/password=\"$CERT_PASSWORD\"/g" "$PROFILE_XML"
-          sed -Ei "s/password=\"\"/password=\"tizenpkcs12passfordsigner\"/g" "$PROFILE_XML"
-          sed -Ei "s|(distributor[^>]*password=\")$CERT_PASSWORD(\")|\1tizenpkcs12passfordsigner\2|g" "$PROFILE_XML"
-          echo "Sanitized profiles.xml:"
-          sed -E 's/password="[^"]*"/password="***"/g' "$PROFILE_XML"
-
-          "$TIZEN_BIN" security-profiles list
-          "$TIZEN_BIN" security-profiles list | grep -q "$PROFILE_NAME"
-
-          export GITHUB_WORKSPACE TIZEN_PROFILE_NAME="$PROFILE_NAME" TIZEN_CERT_PASSWORD="$CERT_PASSWORD"
-          ./package.exp
-          WGT_PATH="$(find app/release -maxdepth 1 -type f -name '*.wgt' | head -n1)"
-          test -n "$WGT_PATH"
-          mv "$WGT_PATH" app/release/Tidalizen.wgt
-
-      - name: create-unsigned-debug-fallback
-        if: failure() && steps.package.outputs.release_mode == 'debug'
-        run: node tools/package-manual-wgt.mjs app/.buildResult app/release/Tidalizen-unsigned-debug.wgt
-
-      - name: enforce-production-release-on-tags
-        if: success() && startsWith(github.ref, 'refs/tags/')
-        run: test "${{ steps.package.outputs.release_mode }}" = "production"
-
-      - name: verify-wgt
-        if: success()
-        run: |
-          set -euo pipefail
-          MODE="${{ steps.package.outputs.release_mode }}"
-          node tools/verify-wgt.mjs app/release/Tidalizen.wgt "$MODE" | tee app/release/wgt-metadata.json
-
-      - name: workflow-summary
-        if: always()
-        run: |
-          set +e
-          echo "### WGT Summary" >> "$GITHUB_STEP_SUMMARY"
-          if [ -f app/release/wgt-metadata.json ]; then
-            cat app/release/wgt-metadata.json >> "$GITHUB_STEP_SUMMARY"
-            echo "production-release=${{ steps.package.outputs.release_mode == 'production' }}" >> "$GITHUB_STEP_SUMMARY"
-          elif [ -f app/release/Tidalizen-unsigned-debug.wgt ]; then
-            echo "signed=false" >> "$GITHUB_STEP_SUMMARY"
-            echo "production-release=false" >> "$GITHUB_STEP_SUMMARY"
-            ls -lah app/release/Tidalizen-unsigned-debug.wgt >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No WGT produced." >> "$GITHUB_STEP_SUMMARY"
-          fi
-
-      - name: upload-artifact
-        if: success()
+      - name: Upload WGT artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Tidalizen-wgt-signed
+          name: Tidalizen-wgt
           path: app/release/Tidalizen.wgt
           if-no-files-found: error
 
-      - name: upload-debug-artifact
-        if: failure() && steps.package.outputs.release_mode == 'debug'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tidalizen-unsigned-debug
-          path: app/release/Tidalizen-unsigned-debug.wgt
-          if-no-files-found: error
-
-      - name: release-on-tag
-        if: success() && startsWith(github.ref, 'refs/tags/')
+      - name: Release WGT on tags
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: app/release/Tidalizen.wgt
