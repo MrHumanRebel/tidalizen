@@ -39,8 +39,12 @@ jobs:
       - name: build-web
         run: |
           set -euo pipefail
-          "$GITHUB_WORKSPACE/tizen-studio/tools/ide/bin/tizen" build-web -e ".*" -e "node_modules/*" -e "package*.json" app
-          test -d app/.buildResult
+          cd app
+          "$GITHUB_WORKSPACE/tizen-studio/tools/ide/bin/tizen" build-web \
+            -e ".*" \
+            -e "node_modules/*" \
+            -e "package*.json"
+          test -d .buildResult
 
       - name: package-signed
         id: package
