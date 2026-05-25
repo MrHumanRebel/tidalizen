@@ -1,0 +1,9 @@
+node_modules/
+app/.buildResult/
+app/release/
+*.wgt
+.DS_Store
+.env
+.env.*
+tizen-studio/
+tizen-studio-data/
