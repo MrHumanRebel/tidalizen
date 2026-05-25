@@ -91,6 +91,7 @@ jobs:
           set -euo pipefail
           mkdir -p app/release
           rm -f app/release/*.wgt
+          chmod +x ./package.exp
           export TIZEN_PROFILE_NAME="$TIZEN_PROFILE_NAME"
           export GITHUB_WORKSPACE="$GITHUB_WORKSPACE"
           set +e
