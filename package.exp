@@ -1,5 +1,5 @@
 #!/usr/bin/expect -f
-set timeout 120
+set timeout 180
 
 proc getenv {name default} {
   global env
@@ -14,20 +14,54 @@ set tizen_bin "$workspace/tizen-studio/tools/ide/bin/tizen"
 set build_dir "$workspace/app/.buildResult"
 set release_dir "$workspace/app/release"
 
-if {$password eq ""} { puts "Error: TIZEN_CERT_PASSWORD is not set"; exit 1 }
-if {![file executable $tizen_bin]} { puts "Error: Tizen CLI not executable: $tizen_bin"; exit 1 }
-if {![file isdirectory $build_dir]} { puts "Error: build result missing: $build_dir"; exit 1 }
+if {$password eq ""} { puts stderr "Error: TIZEN_CERT_PASSWORD is not set"; exit 1 }
+if {![file executable $tizen_bin]} { puts stderr "Error: Tizen CLI not executable: $tizen_bin"; exit 1 }
+if {![file isdirectory $build_dir]} { puts stderr "Error: build result missing: $build_dir"; exit 1 }
 file mkdir $release_dir
 
+puts "Running signed package command with profile '$profile'"
 spawn $tizen_bin package -t wgt -o $release_dir -s $profile -- $build_dir
-expect {
-  "Yes: (Y), No: (N) ?" { send -- "N\r"; exp_continue }
-  "Author password:" { send -- "$password\r"; exp_continue }
-  "Distributor password:" { send -- "$password\r"; exp_continue }
-  "Certificate password:" { send -- "$password\r"; exp_continue }
-  timeout { puts "Error: Timeout waiting for tizen package"; exit 124 }
-  eof
+
+set prompt_count 0
+set max_prompts 12
+while {1} {
+  expect {
+    "Yes: (Y), No: (N) ?" {
+      incr prompt_count
+      if {$prompt_count > $max_prompts} {
+        puts stderr "Error: Prompt loop detected while answering confirmation prompt"
+        exit 97
+      }
+      send -- "N\r"
+      exp_continue
+    }
+    "Author password:" {
+      send -- "$password\r"
+      exp_continue
+    }
+    "Distributor password:" {
+      send -- "$password\r"
+      exp_continue
+    }
+    "Certificate password:" {
+      send -- "$password\r"
+      exp_continue
+    }
+    timeout {
+      puts stderr "Error: Timeout waiting for 'tizen package' output"
+      exit 124
+    }
+    eof {
+      break
+    }
+  }
 }
+
 set wait_result [wait]
 set exit_code [lindex $wait_result 3]
-if {$exit_code != 0} { puts "Error: tizen package failed with exit code $exit_code"; exit $exit_code }
+if {$exit_code != 0} {
+  puts stderr "Error: tizen package failed with exit code $exit_code"
+  exit $exit_code
+}
+puts "Signed packaging completed successfully"
+exit 0

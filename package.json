@@ -7,7 +7,9 @@
     "verify": "node tools/verify-repo.mjs",
     "icons": "python3 tools/make-icons.py",
     "package:zip": "node tools/package-manual-wgt.mjs",
-    "build": "npm run verify && npm run package:zip"
+    "build": "npm run verify && npm run package:debug && npm run verify:wgt",
+    "package:debug": "node tools/package-manual-wgt.mjs app app/release/Tidalizen-unsigned-debug.wgt",
+    "verify:wgt": "node tools/verify-wgt.mjs app/release/Tidalizen-unsigned-debug.wgt debug"
   },
   "keywords": [
     "tizen",

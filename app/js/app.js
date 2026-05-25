@@ -33,6 +33,26 @@
     setTimeout(focusFirst, 150);
   }
   function authState() { return TidalApi.token() ? 'AUTH OK' : 'OFFLINE'; }
+  function runtimeState() {
+    if (!navigator.onLine) return 'network unavailable';
+    var cfg = TidalApi.cfg();
+    if (!cfg.clientId && !TidalApi.token()) return 'no credentials';
+    if (!TidalApi.token()) return 'login required';
+    if (!TZ.isTizen()) return 'dev/browser fallback mode';
+    var snap = TidalPlayer.snapshot ? TidalPlayer.snapshot() : {};
+    if (snap && snap.engine === 'error') return 'playback unsupported';
+    return 'online';
+  }
+  function showFatalOverlay(category, message) {
+    var old = $('fatalOverlay'); if (old && old.parentNode) old.parentNode.removeChild(old);
+    var d = document.createElement('div');
+    d.id = 'fatalOverlay'; d.className = 'modal';
+    d.innerHTML = '<div class="modal-card glass"><h1>Startup error</h1><p class="meta">' + TZ.esc(category) + '</p><div class="notice">' + TZ.esc(message || 'Unknown error') + '</div><div class="actions" style="margin-top:22px"><button class="primary focusable" id="fatalRetry">Retry</button><button class="secondary focusable" id="fatalDiag">Diagnostics</button></div></div>';
+    document.body.appendChild(d);
+    $('fatalRetry').onclick = function () { window.location.reload(); };
+    $('fatalDiag').onclick = function () { state.view = 'diagnostics'; renderShell(); if (d.parentNode) d.parentNode.removeChild(d); };
+    focusFirst();
+  }
   function renderShell() {
     $('app').className = 'app-shell';
     $('app').innerHTML = sidebar() + topbar() + '<main class="main glass"><div class="scroll" id="content"></div></main><footer class="player glass" id="player"></footer>';
@@ -43,7 +63,7 @@
   function sidebar() {
     var h = '<aside class="sidebar glass"><div class="brand"><img class="brand-logo" src="assets/icons/icon-128.png"><div><div class="brand-title">Tidalizen</div><div class="brand-subtitle">native Tizen WGT · v' + TZ.version + '</div></div></div><nav class="nav">';
     for (var i = 0; i < nav.length; i++) h += '<button class="nav-btn focusable ' + (state.view === nav[i][0] ? 'active' : '') + '" data-view="' + nav[i][0] + '"><span class="nav-icon">' + nav[i][1] + '</span><span>' + nav[i][2] + '</span></button>';
-    h += '</nav><div class="side-footer"><div class="badge">' + authState() + '</div><br><br>Remote: arrows + OK<br>Blue: diagnostics<br>Yellow: refresh<br>Green: favorites</div></aside>';
+    h += '</nav><div class="side-footer"><div class="badge">' + authState() + '</div><div class="meta" style="margin-top:10px">State: ' + TZ.esc(runtimeState()) + '</div><br>Remote: arrows + OK<br>Blue: diagnostics<br>Yellow: refresh<br>Green: favorites</div></aside>';
     return h;
   }
   function topbar() {
@@ -210,5 +230,7 @@
       else if (k === 13 && document.activeElement && document.activeElement.click) { e.preventDefault(); document.activeElement.click(); }
     });
   }
-  window.addEventListener('load', boot);
+  window.addEventListener('error', function (e) { TZ.log('window_error', { message: e.message, source: e.filename, line: e.lineno }); showFatalOverlay('runtime', e.message || 'Unhandled runtime error'); });
+  window.addEventListener('unhandledrejection', function (e) { var msg = e && e.reason && (e.reason.message || String(e.reason)) || 'Unhandled promise rejection'; TZ.log('unhandled_rejection', { message: msg }); showFatalOverlay('promise', msg); });
+  window.addEventListener('load', function () { try { boot(); } catch (e) { TZ.log('boot_failed', { message: e.message }); showFatalOverlay('boot', e.message); } });
 })(window, document);
