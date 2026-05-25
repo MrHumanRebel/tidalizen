@@ -1,0 +1,22 @@
+{
+  "name": "tidalizen",
+  "version": "1.0.0",
+  "description": "Native Samsung Tizen WGT music client for TIDAL, optimized for TV remote navigation and AVPlay playback.",
+  "private": true,
+  "scripts": {
+    "verify": "node tools/verify-repo.mjs",
+    "icons": "python3 tools/make-icons.py",
+    "package:zip": "node tools/package-manual-wgt.mjs",
+    "build": "npm run verify && npm run package:zip"
+  },
+  "keywords": [
+    "tizen",
+    "samsung-tv",
+    "tidal",
+    "wgt",
+    "avplay"
+  ],
+  "author": "MrHumanRebel",
+  "license": "MIT",
+  "devDependencies": {}
+}
